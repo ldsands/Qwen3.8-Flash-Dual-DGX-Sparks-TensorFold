@@ -33,9 +33,9 @@ save_log() {
   ls -1 "$dir"/*-rank"$rank".log.gz 2>/dev/null | { grep -vxF "$f" || true; } | LC_ALL=C sort -r | tail -n +"$keep" | xargs -r rm -f --
   echo "$f"
 }
-# worker_save_log 1: the same, for rank 1 on the worker (into ~/.cache/tensorfold-qwen38fn/logs there)
+# worker_save_log 1: the same, for rank 1 on the worker (into ~/.cache/ldsands-flashnext-dual-$ENGINE/logs there)
 worker_save_log() {
-  worker 1 "$(declare -f save_log); save_log \"\$HOME/.cache/tensorfold-qwen38fn/logs\" 1 '$CONTAINER_NAME' '$LOG_KEEP'"
+  worker 1 "$(declare -f save_log); save_log \"\$HOME/.cache/ldsands-flashnext-dual-$ENGINE/logs\" 1 '$CONTAINER_NAME' '$LOG_KEEP'"
 }
 
 need_worker() {

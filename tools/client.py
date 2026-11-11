@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The OpenAI-compatible client the checks in tools/ share (Python standard library only).
 
-Server: API_URL (default http://127.0.0.1:8888, or http://127.0.0.1:$PORT); a trailing /v1 is accepted. API_KEY, when
+Server: API_URL (default http://127.0.0.1:6060, or http://127.0.0.1:$PORT); a trailing /v1 is accepted. API_KEY, when
 set, is sent as a bearer token. MODEL overrides the model id, which is otherwise the first id of /v1/models.
 
 As a command:   tools/client.py [--stream] [--think] [--max-tokens N] [--temperature T] "message"
@@ -28,7 +28,7 @@ PASS, FAIL, CANNOT_RUN, UNCHECKED = 0, 1, 2, 3
 
 
 def _base_url() -> str:
-    url = os.environ.get("API_URL") or "http://127.0.0.1:" + os.environ.get("PORT", "8888")
+    url = os.environ.get("API_URL") or "http://127.0.0.1:" + os.environ.get("PORT", "6060")
     url = url.rstrip("/")
     return url[:-3] if url.endswith("/v1") else url
 

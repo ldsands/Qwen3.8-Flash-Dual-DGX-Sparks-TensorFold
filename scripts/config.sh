@@ -26,6 +26,7 @@ if [[ -f "$_cfg_root/.env" ]]; then
   done < "$_cfg_root/.env"
 fi
 unset _n _line _key _value
+source "$_cfg_root/scripts/engine.sh"
 
 # The Sparks: this machine serves rank 0 and the API; WORKER (ssh target, key-based) runs rank 1. Two Sparks only
 # (tensor parallel over two ranks, TP=2).
@@ -69,7 +70,7 @@ ZIG_VERSION="${ZIG_VERSION:-0.17.0}"
 ZIG_SHA256="${ZIG_SHA256:-9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8}"   # zig-aarch64-linux-0.17.0.tar.xz
 BASE_IMAGE="${BASE_IMAGE:-nvcr.io/nvidia/pytorch:26.07-py3}"
 TF_TAG="zig-${TF_REF:0:7}"
-IMAGE="${IMAGE:-tensorfold-qwen38fn:${TF_TAG}}"
+IMAGE="${IMAGE:-ldsands-flashnext-dual:${ENGINE}-${TF_TAG}}"
 # The kernel set the engine replays (aot.json + cubins), in the image at TENSORFOLD_CUDA_KERNELS: compiled in the
 # image build from TensorFold's spec (prepare.sh, "the kernel set").
 KERNELS_PATH=/opt/tensorfold/share/tensorfold/cuda/sm121
@@ -82,27 +83,32 @@ KERNEL_SOURCE_MTIME="${KERNEL_SOURCE_MTIME:-1791318675}"
 # tf.patches label.
 image_hash() {
   ( cd "$_cfg_root" || exit 1
+    if [[ "$ENGINE" == native ]]; then
+      cat docker/native.Dockerfile
+      echo "$TF_RELEASE_VERSION $TF_RELEASE_SHA256 $TF_REF $BASE_IMAGE"
+      exit
+    fi
     cat patches/*.patch 2>/dev/null
     sed -n "/<<'DOCKERFILE'/,/^DOCKERFILE\$/p" scripts/prepare.sh   # the Dockerfile itself
     echo "$TF_REPO $TF_REF zig-$ZIG_VERSION $ZIG_SHA256 $BASE_IMAGE kernel-mtime-$KERNEL_SOURCE_MTIME"
   ) | sha256sum | cut -c1-12
 }
-GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/miaai-lab/qwen3.8-flash-dual-dgx-sparks-tensorfold}"
+GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/ldsands/qwen3.8-flash-dual-dgx-sparks-tensorfold}"
 # The published image of this release's patches, pinned: prepare.sh pulls it by digest (a tag can be moved, a digest
 # cannot) while image_hash still gives IMAGE_TAG's hash. Other hashes pull $GHCR_IMAGE:<TF_TAG>-<hash> when one is
 # published, else build locally. scripts/publish-image.sh prints both. Empty: prepare.sh builds the image on the head.
-IMAGE_TAG="${IMAGE_TAG:-zig-db28187-f3e1300f4f62}"
-IMAGE_DIGEST="${IMAGE_DIGEST:-sha256:e188128ddabdc67ac02c05781f5c0c6b348db5f050cac297861d82b7f086e18c}"
+IMAGE_TAG="${IMAGE_TAG-}"
+IMAGE_DIGEST="${IMAGE_DIGEST-}"
 # the registry reference prepare.sh pulls for these patches: the pinned digest, or the hash's tag
 prebuilt_image() {
   local tag="${TF_TAG}-$(image_hash)"
   if [[ "$tag" == "$IMAGE_TAG" && -n "$IMAGE_DIGEST" ]]; then echo "$GHCR_IMAGE@$IMAGE_DIGEST"; else echo "$GHCR_IMAGE:$tag"; fi
 }
-CONTAINER_NAME="${CONTAINER_NAME:-qwen38-fn-tf}"           # the same name on both Sparks
+CONTAINER_NAME="${CONTAINER_NAME:-ldsands-flashnext-dual-$ENGINE}"           # the same name on both Sparks
 
-SERVED_NAME="${SERVED_NAME:-$_name}"          # the API model id: Qwen3.8-Flash-Next, or -INT4-AR for int4ar
+SERVED_NAME="${SERVED_NAME:-$MODEL_ID}"          # exact checkpoint ID exposed by /v1/models
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8888}"
+PORT="${PORT:-6060}"
 # Prompt + reply window per request (--context). The checkpoint's native window is 262,144; past it the engine applies
 # Qwen's documented YaRN (rope_type yarn, factor 4.0, original_max_position_embeddings 262144), so the default 1,048,576
 # is four native windows. TF_FLASHNEXT_YARN (the engine's variable, read by both ranks): the YaRN factor, 4 when
@@ -119,11 +125,11 @@ PARALLEL="${PARALLEL:-16}"
 # TF_FLASHNEXT_ROCE: the ranks' small all-gathers as one-shot RDMA writes over the CX7 link instead of NCCL (both
 # ranks must agree; a rank that cannot open RoCE leaves both on NCCL); TF_FLASHNEXT_L2PF: prefetch the next weights
 # into L2 while a gather waits. 0 turns either off. Exact either way: same bits.
-export TF_FLASHNEXT_ROCE="${TF_FLASHNEXT_ROCE:-1}"
-export TF_FLASHNEXT_L2PF="${TF_FLASHNEXT_L2PF:-1}"
+[[ "$ENGINE" != legacy ]] || export TF_FLASHNEXT_ROCE="${TF_FLASHNEXT_ROCE:-1}"
+[[ "$ENGINE" != legacy ]] || export TF_FLASHNEXT_L2PF="${TF_FLASHNEXT_L2PF:-1}"
 # MTP drafts: up to TF_FLASHNEXT_DEPTH a round (15: 16-row windows, also for copy drafts); when a draft stops is the
 # engine's own (hybrid) rule. Drafts only propose, so replies are the same either way.
-export TF_FLASHNEXT_DEPTH="${TF_FLASHNEXT_DEPTH:-15}"
+[[ "$ENGINE" != legacy ]] || export TF_FLASHNEXT_DEPTH="${TF_FLASHNEXT_DEPTH:-15}"
 # The reply budget of a request that sets no max_tokens, reasoning and answer together (--max-tokens; the engine's own
 # default is 4,096, which can end a reply inside its thinking). A request's own value wins.
 MAX_TOKENS="${MAX_TOKENS:-32768}"
@@ -187,14 +193,14 @@ HF_CACHE="${HF_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"
 WORKER_WEIGHTS="${WORKER_WEIGHTS:-copy}"
 NFS_PATH="${NFS_PATH:-$HF_CACHE}"
 NFS_SERVER="${NFS_SERVER:-}"
-NFS_VOLUME="${NFS_VOLUME:-qwen38fn-hf}"
-KERNEL_CACHE="${KERNEL_CACHE:-$HOME/.cache/tensorfold-qwen38fn}"   # the ranks' /cache (CUDA's JIT cache), a folder per image hash
-STATE_DIR="${STATE_DIR:-$HOME/.local/state/qwen38fn-tensorfold}"   # this recipe's locks and setup marker
+NFS_VOLUME="${NFS_VOLUME:-ldsands-flashnext-dual-$ENGINE-hf}"
+KERNEL_CACHE="${KERNEL_CACHE:-$HOME/.cache/ldsands-flashnext-dual-$ENGINE}"   # the ranks' /cache (CUDA's JIT cache), a folder per image hash
+STATE_DIR="${STATE_DIR:-$HOME/.local/state/ldsands-flashnext-dual-$ENGINE}"   # this recipe's locks and setup marker
 # Server logs: stop.sh (and start.sh, before it removes a stopped container left from an earlier run) saves each rank's
 # container log, stdout and stderr with timestamps, gzipped, as <date>-<time>-rank<N>.log.gz in LOG_DIR here and in
-# ~/.cache/tensorfold-qwen38fn/logs on the worker, and keeps the newest LOG_KEEP (0: saves none). docker rm deletes a
+# the profile-specific cache logs directory on the worker, and keeps the newest LOG_KEEP (0: saves none). docker rm deletes a
 # container's own log, so without this a crash's log is gone at the next stop or start.
-LOG_DIR="${LOG_DIR:-$HOME/.cache/tensorfold-qwen38fn/logs}"
+LOG_DIR="${LOG_DIR:-$KERNEL_CACHE/logs}"
 LOG_KEEP="${LOG_KEEP:-10}"
 # Free disk prepare.sh asks for before it downloads or copies: under HF_CACHE, what the download still needs (the
 # revision's files whose blobs are not cached yet, from the Hub's file list, plus 5 GB), or MIN_FREE_GB for the
@@ -205,7 +211,7 @@ MIN_FREE_GB="${MIN_FREE_GB:-140}"
 IMAGE_FREE_GB="${IMAGE_FREE_GB:-35}"
 
 # Colours only on a terminal.
-_c() { [[ -t "$1" ]] && printf '\033[%sm' "$2" || true; }
+_c() { [[ -t "$1" && -z "${NO_COLOR+x}" ]] && printf '\033[%sm' "$2" || true; }
 log()  { printf '%s[%s]%s %s\n' "$(_c 1 '1;36')" "$(basename "$0")" "$(_c 1 0)" "$*"; }
 warn() { printf '%s[%s] WARN:%s %s\n' "$(_c 2 '1;33')" "$(basename "$0")" "$(_c 2 0)" "$*" >&2; }
 die()  { printf '%s[%s] ERROR:%s %s\n' "$(_c 2 '1;31')" "$(basename "$0")" "$(_c 2 0)" "$*" >&2; exit 1; }
@@ -230,3 +236,6 @@ prepared_state() {
   wlabel=$(worker 1 docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || echo missing)
   echo "model=$MODEL_ID@$MODEL_REVISION image=$label worker=$wlabel patches=$hash worker_host=$WORKER weights=$WORKER_WEIGHTS"
 }
+
+# The native engine embeds its CUDA kernels; a legacy capture must never replace them.
+[[ "$ENGINE" != native ]] || KERNELS_PATH=""

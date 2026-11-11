@@ -47,6 +47,7 @@ done
 set -- "${_args[@]}"; unset _args
 source ./scripts/config.sh
 source ./scripts/nodes.sh
+validate_engine
 
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-1800}"
@@ -72,14 +73,21 @@ SERVE_ARGS=(--context "$CONTEXT" --parallel "$PARALLEL" --max-tokens "$MAX_TOKEN
 if [[ "$THINKING" == 1 ]]; then SERVE_ARGS+=(--thinking); else SERVE_ARGS+=(--no-thinking); fi
 [[ "$DRAFTS" == 1 ]] || SERVE_ARGS+=(--no-drafts)
 [[ "$KV_DTYPE" =~ ^(bf16|fp8)$ ]] || die "KV_DTYPE is bf16 or fp8, not $KV_DTYPE"
-SERVE_ARGS+=(--kv-dtype "$KV_DTYPE")
+kv_arguments
 [[ "$MAX_VIDEOS" =~ ^[0-9]+$ ]] || die "MAX_VIDEOS is a count, not $MAX_VIDEOS"
 if [[ "$VISION" == 1 ]]; then
-  SERVE_ARGS+=(--vision --vision-max-images "$TENSORFOLD_MAX_IMAGES" --vision-max-videos "$MAX_VIDEOS"
+  SERVE_ARGS+=(--vision --vision-max-images "$TENSORFOLD_MAX_IMAGES"
                --vision-image-tokens "$TENSORFOLD_IMAGE_TOKENS")
+  [[ "$ENGINE" != legacy ]] || SERVE_ARGS+=(--vision-max-videos "$MAX_VIDEOS")
   [[ "$VISION_URLS" == 1 ]] && SERVE_ARGS+=(--vision-urls)
 fi
 USER_ARGS=("$@")
+for arg in "${USER_ARGS[@]}"; do
+  case "$arg" in
+    --tp|--tp=*|--rank|--rank=*|--master|--master=*|--master-port|--master-port=*|--name|--name=*|--port|--port=*|--host|--host=*)
+      die "$arg is managed by the two-Spark recipe; use its environment settings" ;;
+  esac
+done
 # The effective value of a flag (its last occurrence, as --flag value or --flag=value).
 arg_value() {
   local flag=$1 value="" i
@@ -92,6 +100,17 @@ arg_value() {
   done
   echo "$value"
 }
+if [[ "$ENGINE" == native ]]; then
+  effective_context=$(arg_value --context)
+  [[ "$effective_context" =~ ^[1-9][0-9]*$ ]] && (( effective_context <= 262144 )) ||
+    die "native Flash Next supports at most 262144 context"
+  for arg in "${USER_ARGS[@]}"; do
+    case "$arg" in
+      --kv-dtype|--kv-dtype=*|--kv-cache|--kv-cache=*|--rope-yarn|--rope-yarn=*|--vision-max-videos|--vision-max-videos=*|--vision-image-tokens|--vision-image-tokens=*)
+        die "$arg is managed by the native profile; use KV_DTYPE, MAX_VIDEOS or TENSORFOLD_IMAGE_TOKENS, or ENGINE=legacy" ;;
+    esac
+  done
+fi
 # Where to reach the server from this machine: a wildcard bind answers on loopback.
 API_HOST="$HOST"; [[ "$HOST" == 0.0.0.0 || "$HOST" == "::" ]] && API_HOST=127.0.0.1
 [[ "$API_HOST" == *:* ]] && API_HOST="[$API_HOST]"
@@ -106,7 +125,7 @@ served_name() {
 
 # ---------------------------------------------------------------- banner and progress
 B=$'\033[1m'; M=$'\033[1;35m'; G=$'\033[1;32m'; D=$'\033[2m'; R=$'\033[0m'
-[[ -t 1 ]] || { B=; M=; G=; D=; R=; }
+[[ -t 1 && -z "${NO_COLOR+x}" ]] || { B=; M=; G=; D=; R=; }
 source ./scripts/banner.sh
 echo
 banner "Qwen3.8-Flash-Next · $QUANT_LABEL"          # the TensorFold ribbon and MIA AI LAB, and the quant (terminals only)
@@ -257,8 +276,8 @@ fi
 # mem_need_gib: what a rank of this window holds under a long prompt, measured, plus MEM_FLOOR_GIB for the machine).
 # MEM_CHECK=0 warns instead of stopping here.
 need_gib=${MEM_NEED_GIB:-$(mem_need_gib "$(arg_value --context)" "$(arg_value --parallel)")}
-here_gb=$(free -g | awk '/^Mem:/ {print $7}')
-there_gb=$(worker 1 "free -g | awk '/^Mem:/ {print \$7}'" 2>/dev/null || echo 0)
+here_gb=$(awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo)
+there_gb=$(worker 1 "awk '/^MemAvailable:/ {print int(\$2 / 1048576)}' /proc/meminfo" 2>/dev/null || echo 0)
 low_mem() {  # <where> <GiB available> <how to see what holds it>
   local msg="only $2 GiB memory available $1; a rank of a $(arg_value --context)-token window needs ~$need_gib (MemAvailable): stop other GPU work ($3) or lower CONTEXT"
   if (( DRY )) || [[ "${MEM_CHECK:-1}" == 0 ]]; then warn "$msg"; else die "$msg (MEM_CHECK=0 starts anyway)"; fi
@@ -275,7 +294,8 @@ fi
 # secret: it never goes on a command line, only by name to rank 0 (docker reads its value from this environment).
 env_args() {
   local name
-  ENV_ARGS=(-e HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" -e TENSORFOLD_CUDA_KERNELS="$KERNELS_PATH")
+  ENV_ARGS=(-e HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}")
+  [[ -z "$KERNELS_PATH" ]] || ENV_ARGS+=(-e TENSORFOLD_CUDA_KERNELS="$KERNELS_PATH")
   while IFS='=' read -r name _; do
     [[ "$name" == TENSORFOLD_API_KEY || "$name" == TENSORFOLD_CUDA_KERNELS ]] && continue
     ENV_ARGS+=(-e "$name=${!name}")
@@ -296,15 +316,15 @@ launch() {
   log "Rank 1 on $WORKER: ${RANK_ARGV[*]}"
   worker_cmd=(docker run -d --name "$CONTAINER_NAME" "${RUN_ARGS[@]}" "${ENV_ARGS[@]}"
               $(rank_nccl_env 1)
-              -v "$WORKER_MOUNT" -v "\$HOME/.cache/tensorfold-qwen38fn/$KCACHE:/cache"
+              -v "$WORKER_MOUNT" -v "\$HOME/.cache/ldsands-flashnext-dual-$ENGINE/$KCACHE:/cache"
               "$IMAGE" "${RANK_ARGV[@]}")
   remote=""; for a in "${worker_cmd[@]}"; do
     case "$a" in '$HOME'*) remote+=" \"$a\"" ;; *) remote+=" $(printf '%q' "$a")" ;; esac
   done
   if (( DRY )); then
-    printf '[dry-run] rank 1 on %s:\n  %s\n' "$WORKER" "mkdir -p \$HOME/.cache/tensorfold-qwen38fn &&$remote"
+    printf '[dry-run] rank 1 on %s:\n  %s\n' "$WORKER" "mkdir -p \$HOME/.cache/ldsands-flashnext-dual-$ENGINE &&$remote"
   else
-    worker 1 "mkdir -p \$HOME/.cache/tensorfold-qwen38fn &&$remote" >/dev/null || die "could not start rank 1 on $WORKER"
+    worker 1 "mkdir -p \$HOME/.cache/ldsands-flashnext-dual-$ENGINE &&$remote" >/dev/null || die "could not start rank 1 on $WORKER"
   fi
   rank_argv 0
   log "Rank 0 here: ${RANK_ARGV[*]}"

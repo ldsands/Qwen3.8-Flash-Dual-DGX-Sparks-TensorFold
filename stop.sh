@@ -3,7 +3,7 @@
 # (rank 0) and on the worker (WORKER, rank 1).
 # The ranks get STOP_TIMEOUT seconds (default 30) to shut down; requests still running are cut off (it does not drain
 # them), so stop.sh says when there are any. Each rank's log is saved first (docker rm deletes it), gzipped, in LOG_DIR
-# here (~/.cache/tensorfold-qwen38fn/logs) and ~/.cache/tensorfold-qwen38fn/logs on the worker; the newest LOG_KEEP
+# here (~/.cache/ldsands-flashnext-dual-$ENGINE/logs) and ~/.cache/ldsands-flashnext-dual-$ENGINE/logs on the worker; the newest LOG_KEEP
 # (10) of each rank stay.
 # Usage: ./stop.sh      Env: CONTAINER_NAME, PORT, WORKER (see scripts/config.sh), STOP_TIMEOUT, LOG_DIR, LOG_KEEP
 #   DRY_RUN=1 ./stop.sh   says what it would stop, and on which Spark, and stops nothing
@@ -34,13 +34,14 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" 
   api_host="$HOST"; [[ "$HOST" == 0.0.0.0 || "$HOST" == "::" ]] && api_host=127.0.0.1
   [[ "$api_host" == *:* ]] && api_host="[$api_host]"
   busy=$(curl -s --max-time 3 "http://$api_host:$PORT/health" 2>/dev/null |
-         python3 -c 'import json,sys; l = json.load(sys.stdin).get("live") or {}; print(int(l.get("connections") or 0))' 2>/dev/null || echo 0)
+         python3 scripts/health_count.py 2>/dev/null || echo 0)
+  [[ "$busy" =~ ^[0-9]+$ ]] || busy=0
   (( busy == 0 )) || warn "$busy request(s) still running will be cut off"
 fi
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
   log "DRY_RUN=1: would stop and remove $CONTAINER_NAME $where (up to ${STOP_TIMEOUT:-30}s); nothing is stopped"
   if (( here )); then printf '[dry-run] rank 0 here:\n  docker stop -t %s %s; (its log saved to %s); docker rm -f %s\n' "${STOP_TIMEOUT:-30}" "$CONTAINER_NAME" "$LOG_DIR" "$CONTAINER_NAME"; fi
-  if (( there )); then printf '[dry-run] rank 1 on %s:\n  docker stop -t %s %s; (its log saved to ~/.cache/tensorfold-qwen38fn/logs there); docker rm -f %s\n' "$WORKER" "${STOP_TIMEOUT:-30}" "$CONTAINER_NAME" "$CONTAINER_NAME"; fi
+  if (( there )); then printf '[dry-run] rank 1 on %s:\n  docker stop -t %s %s; (its log saved to the profile cache on the worker); docker rm -f %s\n' "$WORKER" "${STOP_TIMEOUT:-30}" "$CONTAINER_NAME" "$CONTAINER_NAME"; fi
   exit 0
 fi
 log "Stopping $CONTAINER_NAME $where (up to ${STOP_TIMEOUT:-30}s)"

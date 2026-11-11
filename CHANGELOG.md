@@ -1,5 +1,16 @@
 # Changelog
 
+## Independent fork, 2026-11-11
+
+- Add an opt-in TensorFold 1.2.6 release profile with checksum verification and pinned native image decoders.
+- Preserve the legacy engine and its twelve patches; reject incompatible native TP=2 settings early.
+- Isolate fork/profile containers and state, and serve exact checkpoint IDs on port 6060.
+- Read available memory without localized `free` output; support both health layouts on stop.
+- Port corrected benchmark accounting and an image check from the single-Spark recipe.
+- Add offline lifecycle/parser regressions and document untested hardware requirements.
+
+The historical upstream changelog follows. Its image names and measurements describe upstream, not this fork.
+
 Every change to this recipe, newest first. Each release names the image it serves: `scripts/prepare.sh` pulls
 `ghcr.io/miaai-lab/qwen3.8-flash-dual-dgx-sparks-tensorfold` by the digest pinned in `scripts/config.sh`.
 

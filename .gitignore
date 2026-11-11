@@ -19,3 +19,6 @@ NOTES*.md
 *.orig
 *.rej
 *.log
+
+__pycache__/
+*.pyc

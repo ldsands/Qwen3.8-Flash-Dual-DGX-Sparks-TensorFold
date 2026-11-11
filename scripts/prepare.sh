@@ -26,6 +26,7 @@ done
 set -- "${_args[@]}"; unset _args
 source ./scripts/config.sh
 source ./scripts/nodes.sh
+validate_engine
 
 REBUILD=0
 for arg in "$@"; do
@@ -159,13 +160,19 @@ fi
 if [[ $REBUILD -eq 1 || "$built_hash" != "$PATCHES_HASH" ]]; then
   docker image inspect "$BASE_IMAGE" >/dev/null 2>&1 && [[ $REBUILD -eq 0 ]] || { log "Pulling base image $BASE_IMAGE"; docker pull "$BASE_IMAGE"; }
   kernels=present
-  log "Building $IMAGE (TensorFold ${TF_REF:0:12} with Zig $ZIG_VERSION, patches $PATCHES_HASH: $(compgen -G 'patches/*.patch' | wc -l) patches; the engine, then its Triton kernel set)"
+  log "Building $IMAGE ($ENGINE, TensorFold ${TF_REF:0:12}, image hash $PATCHES_HASH)"
   # the build context: patches/ only (never the rest of the repository), in a fresh private directory
   ctx=$(mktemp -d "$STATE_DIR/build.XXXXXX")
   trap 'rm -rf -- "$ctx"' EXIT
   mkdir -p "$ctx/patches"
   compgen -G 'patches/*.patch' >/dev/null && cp -- patches/*.patch "$ctx/patches/"
   nocache=(); [[ $REBUILD -eq 1 ]] && nocache=(--no-cache)
+  if [[ "$ENGINE" == native ]]; then
+    docker build "${nocache[@]}" -t "$IMAGE" -f docker/native.Dockerfile \
+      --build-arg BASE_IMAGE="$BASE_IMAGE" --build-arg TF_RELEASE_VERSION="$TF_RELEASE_VERSION" \
+      --build-arg TF_RELEASE_SHA256="$TF_RELEASE_SHA256" --build-arg TF_REF="$TF_REF" \
+      --build-arg PATCHES_HASH="$PATCHES_HASH" "$ctx"
+  else
   docker build "${nocache[@]}" -t "$IMAGE" --build-arg BASE_IMAGE="$BASE_IMAGE" \
     --build-arg TF_REPO="$TF_REPO" --build-arg TF_REF="$TF_REF" \
     --build-arg ZIG_VERSION="$ZIG_VERSION" --build-arg ZIG_SHA256="$ZIG_SHA256" \
@@ -219,6 +226,7 @@ ENV HF_HOME=/root/.cache/huggingface TENSORFOLD_CUDA_KERNELS=/opt/tensorfold/sha
     CUDA_CACHE_PATH=/cache/nv TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python
 WORKDIR /workspace
 DOCKERFILE
+  fi
   rm -rf -- "$ctx"; trap - EXIT
 else
   log "Image $IMAGE already built with patches $PATCHES_HASH (use --rebuild to force)"

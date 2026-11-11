@@ -99,3 +99,12 @@ third-party notices that go with it (TensorFold's MIT and Apache-2.0 notices, Zi
   128 GB unified memory), two of them linked by their ConnectX-7 ports.
 
 If you believe something here is missing or credited wrongly, please open an issue.
+
+## Independent ldsands fork (2026-11-11)
+
+The native 1.2.6 profile uses Ash Hart and the TensorFold contributors' released
+engine and TP=2 implementation, without modifying TensorFold source. The pinned
+image decoder build, benchmark tools and image check are adapted from MiaAI-Lab's
+single-Spark recipe at 20e15e41f2f514a0d287710f4665ee1b5009ba41.
+Its locale-independent memory and health-parser fixes informed the dual-node fixes.
+The original twelve dual-engine patches and their author credits are retained.
