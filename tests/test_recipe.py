@@ -41,7 +41,7 @@ class RecipeTests(unittest.TestCase):
         settings = [dict(KV_DTYPE='fp8'), dict(CONTEXT='1048576'), dict(QUANT='int4ar'),
                     dict(TF_FLASHNEXT_KEEP_LATE='1'), dict(TF_FLASHNEXT_KV_PAGES='256'),
                     dict(TF_FLASHNEXT_DECODE_GRAPH='1'), dict(TENSORFOLD_IMAGE_TOKENS='16384'),
-                    dict(MAX_VIDEOS='4'), dict(TF_REF='main')]
+                    dict(MAX_VIDEOS='4'), dict(TENSORFOLD_MAX_IMAGES='65'), dict(TF_REF='main')]
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             for name in ('docker', 'ssh'):
@@ -68,26 +68,37 @@ class RecipeTests(unittest.TestCase):
     def test_both_rank_commands_match_release_parser_without_loading(self):
         binary = os.environ.get('TF_TEST_BINARY')
         if not binary:
-            self.skipTest('set TF_TEST_BINARY to the checked native x86_64 1.2.6 release')
+            self.skipTest('set TF_TEST_BINARY to the checked native x86_64 1.2.7 release')
         # The real launcher builds this array; stop before networking/preparation.
         start = (ROOT/'start.sh').read_text()
         begin = start.index('SERVE_ARGS=(--context')
         end = start.index('USER_ARGS=("$@")', begin)
         fn_start = start.index('rank_argv() {')
         fn_end = start.index('\n}', fn_start) + 2
-        for rank in (0, 1):
-            script = ('source scripts/config.sh; validate_engine; ' + start[begin:end] + '\n'
-                      'USER_ARGS=(); MODEL_ARG=/nonexistent/argument-check; MASTER_ADDR=192.0.2.1\n' +
-                      start[fn_start:fn_end] + f'\nrank_argv {rank}\nprintf "%s\\0" "${{RANK_ARGV[@]}}"')
-            result = self.shell(script, ENGINE='native')
-            self.assertEqual(result.returncode, 0, result.stderr)
-            argv = result.stdout.rstrip('\0').split('\0')
-            check = subprocess.run([binary, *argv[1:]], text=True, capture_output=True,
-                                   env={**os.environ, 'HF_HUB_OFFLINE': '1'})
-            self.assertEqual(check.returncode, 1, check.stderr)
-            self.assertIn('neither a directory', check.stderr)
-            self.assertNotIn('--kv-dtype', argv)
-            self.assertEqual(argv[argv.index('--tp') + 1], '2')
+        variants = [dict(), dict(CONTEXT='1', PARALLEL='1', DRAFTS='0', VISION='0'),
+                    dict(CONTEXT='262144', PARALLEL='16', TENSORFOLD_MAX_IMAGES='64'),
+                    dict(THINKING='0', VISION_URLS='1')]
+        for settings in variants:
+            for rank in (0, 1):
+                with self.subTest(settings=settings, rank=rank):
+                    script = ('source scripts/config.sh; validate_engine; ' + start[begin:end] + '\n'
+                              'USER_ARGS=(); MODEL_ARG=/nonexistent/argument-check; MASTER_ADDR=192.0.2.1\n' +
+                              start[fn_start:fn_end] + f'\nrank_argv {rank}\nprintf "%s\\0" "${{RANK_ARGV[@]}}"')
+                    result = self.shell(script, ENGINE='native', **settings)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    argv = result.stdout.rstrip('\0').split('\0')
+                    check = subprocess.run([binary, *argv[1:]], text=True, capture_output=True,
+                                           env={**os.environ, 'HF_HUB_OFFLINE': '1'})
+                    self.assertEqual(check.returncode, 1, check.stderr)
+                    self.assertIn('neither a directory', check.stderr)
+                    self.assertNotIn('--kv-dtype', argv)
+                    self.assertNotIn('--vision-max-videos', argv)
+                    self.assertEqual(argv[argv.index('--tp') + 1], '2')
+                    self.assertEqual(argv[argv.index('--rank') + 1], str(rank))
+                    self.assertEqual(argv[argv.index('--name') + 1], 'nvidia/Qwen3.8-Flash-Next-NVFP4')
+                    self.assertEqual(argv[argv.index('--context') + 1], settings.get('CONTEXT', '262144'))
+                    self.assertEqual('--no-drafts' in argv, settings.get('DRAFTS') == '0')
+                    self.assertEqual('--vision' in argv, settings.get('VISION') != '0')
 
     def test_stop_health_layouts_and_malformed_responses(self):
         with tempfile.TemporaryDirectory() as td:

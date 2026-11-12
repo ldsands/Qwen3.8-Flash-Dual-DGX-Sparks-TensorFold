@@ -1,5 +1,13 @@
 # Changelog
 
+## Native release upgrade, 2026-11-12
+
+- Upgrade the opt-in native profile to official TensorFold 1.2.7 at `93a2e93ecebff8aa52b88e58c5dd222516e69c5f`.
+- Verify both Linux release archives, all internal hashes and the packaged grammar runtime.
+- Check generated TP=2 rank commands with the real x86_64 parser and strict schemas with the real grammar library.
+- Reject image counts above the native media loader's 64-image limit before preparation or startup.
+- Keep the legacy default, its twelve patches and build inputs unchanged. No hardware validation was performed.
+
 ## Independent fork, 2026-11-11
 
 - Add an opt-in TensorFold 1.2.6 release profile with checksum verification and pinned native image decoders.

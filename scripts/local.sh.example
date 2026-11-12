@@ -1,4 +1,4 @@
-# ENGINE=native               # opt-in TensorFold 1.2.6; read docs/native-upgrade.md first
+# ENGINE=native               # opt-in TensorFold 1.2.7; read docs/native-upgrade.md first
 # Copy to scripts/local.sh (not in git) and fill in this setup's values; scripts/config.sh reads it first.
 WORKER=user@192.0.2.2          # ssh target of the second Spark (key-based: ssh-copy-id user@192.0.2.2)
 # FABRIC_PEER=192.0.2.12       # the worker's CX7 address, when WORKER is reached over another network

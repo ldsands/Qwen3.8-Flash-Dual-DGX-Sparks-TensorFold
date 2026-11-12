@@ -3,9 +3,9 @@ ENGINE="${ENGINE:-legacy}"
 case "$ENGINE" in
   legacy) ;;
   native)
-    TF_REF="${TF_REF:-6e9af930261a88bb28ac0bfb157ce8e57e9eea07}"
-    TF_RELEASE_VERSION=1.2.6
-    TF_RELEASE_SHA256=d227a6e65516329ace9d460ee8d1d695f0b66eb69005960bed538f831e1f9543
+    TF_REF="${TF_REF:-93a2e93ecebff8aa52b88e58c5dd222516e69c5f}"
+    TF_RELEASE_VERSION=1.2.7
+    TF_RELEASE_SHA256=250b7cd3d1aa2685cbf011f501c4f10bbff44c6ccd876dc63a7a4bbf337ed01b
     CONTEXT="${CONTEXT:-262144}"
     KV_DTYPE="${KV_DTYPE:-bf16}"
     MAX_VIDEOS="${MAX_VIDEOS:-0}"
@@ -19,8 +19,8 @@ esac
 # Fail before Docker, SSH, downloads or lifecycle operations. Stop remains available.
 validate_engine() {
   [[ "$ENGINE" == native ]] || return 0
-  [[ "$TF_REF" == 6e9af930261a88bb28ac0bfb157ce8e57e9eea07 ]] ||
-    die "native uses the pinned 1.2.6 release archive; changing TF_REF alone cannot change that binary"
+  [[ "$TF_REF" == 93a2e93ecebff8aa52b88e58c5dd222516e69c5f ]] ||
+    die "native uses the pinned 1.2.7 release archive; changing TF_REF alone cannot change that binary"
   [[ "$QUANT" == nvfp4 ]] || die "native TP=2 needs ModelOpt NVFP4; use ENGINE=legacy for INT4-AutoRound"
   [[ "$KV_DTYPE" == bf16 ]] || die "native Flash Next has no FP8 KV cache; use ENGINE=legacy for KV_DTYPE=fp8"
   [[ "$CONTEXT" =~ ^[1-9][0-9]*$ ]] && (( CONTEXT <= 262144 )) ||
@@ -28,6 +28,8 @@ validate_engine() {
   [[ "$MAX_VIDEOS" == 0 ]] || die "native Flash Next has no video input; use ENGINE=legacy"
   [[ "$TENSORFOLD_IMAGE_TOKENS" =~ ^[1-9][0-9]*$ ]] && (( TENSORFOLD_IMAGE_TOKENS <= 4096 )) ||
     die "native Flash Next supports at most 4096 image tokens; use ENGINE=legacy for 16384"
+  [[ "$TENSORFOLD_MAX_IMAGES" =~ ^[1-9][0-9]*$ ]] && (( TENSORFOLD_MAX_IMAGES <= 64 )) ||
+    die "native Flash Next supports 1 to 64 images per request"
   [[ "$TF_REPO" == https://github.com/ashhart/TensorFold.git ]] ||
     die "native installs the official release archive, not TF_REPO"
   [[ "$TF_FLASHNEXT_YARN" == 0 ]] || die "native Flash Next has no YaRN extension"

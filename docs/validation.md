@@ -1,8 +1,70 @@
-# Offline validation — 2026-11-11
+# Offline validation, 2026-11-12
+
+TensorFold 1.2.7 source reviewed at
+`93a2e93ecebff8aa52b88e58c5dd222516e69c5f`. The official GitHub release API identifies
+v1.2.7 as a published, non-prerelease release at that commit. All current checks ran
+on x86_64. No Spark SSH, Docker build/lifecycle, model download or live inference
+request was used.
+
+## Current release checks
+
+```sh
+TF_TEST_BINARY=<verified-x86-release>/bin/tensorfold-native \
+TF_TEST_ARCHIVE_AARCH64=<downloads>/tensorfold-1.2.7-linux-aarch64.tar.gz \
+TF_TEST_ARCHIVE_X86_64=<downloads>/tensorfold-1.2.7-linux-x86_64.tar.gz \
+scripts/check.sh
+```
+
+- All **10 unittest cases passed**, including eight real rank-command parses across
+  both ranks, context boundaries, concurrency, drafts, thinking and vision settings.
+  Each accepted command stopped at the nonexistent absolute model path with
+  `HF_HUB_OFFLINE=1`, before loading a checkpoint. The binary reports
+  `tensorfold-native 1.2.7`.
+- Both official archives matched their companion `.sha256` files and GitHub release
+  asset digests. All **23 internal manifest entries per archive** verified, including
+  `libtfgrammar.so` and its license notices. ELF headers identify aarch64 and x86_64
+  for the respective binary and grammar library.
+- Native `capabilities --json` found the adjacent grammar library on x86_64. The
+  actual library accepted typed tool-argument JSON under a strict schema and rejected
+  a wrong function name, string-valued integer, string-valued array, extra property,
+  incomplete reply and malformed schema. This executes the CPU grammar ABI with a
+  synthetic character tokenizer, not the server or the checkpoint tokenizer.
+- Native configuration refuses incompatible settings before fake Docker/SSH commands
+  can execute, including the new 64-image upper bound. Legacy features, health parsing,
+  memory-command quoting and the benchmark fake-server regressions passed.
+- Shell syntax, Python compilation and `git diff --check` passed.
+- Legacy patches and build inputs remain unchanged, with image-input hash
+  `3dfe459421d5`. Native image-input hash is `c35ae0742dd8`. These are build-input
+  identifiers, not Docker image digests. No native image is claimed to exist.
+
+| Official 1.2.7 artifact | SHA-256 |
+| --- | --- |
+| Linux aarch64 archive | `250b7cd3d1aa2685cbf011f501c4f10bbff44c6ccd876dc63a7a4bbf337ed01b` |
+| Linux x86_64 archive | `319f548ba3d8af501b30108fceccf6d12a375e2851999ae9f5cb88466406a694` |
+| aarch64 native executable | `441a38475ea6eb4d4122cb9e534267c9aa598f921e6cc1bf1bb5aae0a4db3ee0` |
+| aarch64 libtfgrammar.so | `abad72a824800ec45e07d2c4416bf4249266f70bf86046a0f0770653068eb09e` |
+| x86_64 libtfgrammar.so | `64a30d23b890d4bfce2854cbb6659fc636cd36dacf0eb1696e2a5b2d732e2e8b` |
+
+Sources: [official release](https://github.com/ashhart/TensorFold/releases/tag/v1.2.7)
+and its downloadable assets; [pinned source](https://github.com/ashhart/TensorFold/tree/93a2e93ecebff8aa52b88e58c5dd222516e69c5f).
+Release signatures were not verified. These checks establish checksum agreement
+with the official release assets.
+
+## Current limits
+
+The 1.2.6 Zig host-test results below are historical and were **not rerun against
+1.2.7**. Current validation covers release packaging, the real CLI parser, the real
+CPU grammar library and recipe tests. It does not establish aarch64 execution,
+Docker build success, CUDA/NCCL/CX7 operation, checkpoint loading, TP=2 token parity,
+image/tool/streamed-JSON responses, context or concurrency memory fit, cancellation
+or performance. Both profiles remain unlaunched. The legacy profile stays the default.
+
+---
+
+# Historical 1.2.6 validation, 2026-11-11
 
 All checks ran on an x86_64 controller. No Spark was contacted for this work; no
-model, container or checkpoint download was started. The SparkFleet checkout stayed
-clean at `73aff8d47e196a8216a73375afa184f783f6e9e2`.
+model, container or checkpoint download was started.
 
 ## Recipe and release checks
 

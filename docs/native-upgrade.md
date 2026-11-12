@@ -1,8 +1,8 @@
-# Flash Next single-to-dual evaluation, 2026-11-11
+# Flash Next native release review, 2026-11-12
 
 This fork keeps the original dual-Spark engine and adds an opt-in native release profile.
 It has not been loaded on the Sparks. Offline checks do not establish GPU correctness,
-memory fit or a speed improvement. SparkFleet and its registered recipes are unchanged.
+memory fit or a speed improvement.
 
 ## Reviewed sources
 
@@ -10,14 +10,13 @@ memory fit or a speed improvement. SparkFleet and its registered recipes are unc
   `dc05c912342ec19467b3b7b686888de763f2ada1`.
 - Single recipe: [MiaAI-Lab single recipe](https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold),
   `20e15e41f2f514a0d287710f4665ee1b5009ba41`, seventeen patches on TensorFold 1.1.4.
-- Native candidate: [TensorFold **1.2.6**](https://github.com/ashhart/TensorFold/releases/tag/v1.2.6), `6e9af930261a88bb28ac0bfb157ce8e57e9eea07`.
-  This was the latest published release with downloadable Linux archives during review.
-  Main already named 1.2.7; the fork deliberately pins the available release artifacts.
+- Native candidate: [TensorFold **1.2.7**](https://github.com/ashhart/TensorFold/releases/tag/v1.2.7), `93a2e93ecebff8aa52b88e58c5dd222516e69c5f`.
+  The official stable release and its Linux archives were verified on 2026-11-12.
 - The legacy engine remains `db281878ddb836fd0df510d8771ecb7e0fe47d26` with the
   original twelve patches. No legacy engine patch was rewritten or discarded.
 
 The new profile installs the official aarch64 release, SHA-256
-`d227a6e65516329ace9d460ee8d1d695f0b66eb69005960bed538f831e1f9543`.
+`250b7cd3d1aa2685cbf011f501c4f10bbff44c6ccd876dc63a7a4bbf337ed01b`.
 The Dockerfile checks the archive and its internal SHA256SUMS, retains its licenses,
 and builds the single recipe's pinned JPEG and WebP decoders. Kernels and grammar
 support are supplied by the native release. It does not apply the old Triton patches
@@ -33,7 +32,7 @@ an assertion that every optimized kernel runs for every checkpoint shape.
 | Single-Spark work | Decision for this fork |
 | --- | --- |
 | 0001: quantized vision tower | Native ModelOpt vision loader; JPEG/WebP codecs carried over. Must qualify image answers on both ranks. |
-| 0002: 16,384 image tokens | Not in native 1.2.6: its shared CUDA media loader caps at 4,096. Legacy retains 16,384. |
+| 0002: 16,384 image tokens | Not in native 1.2.7: its shared CUDA media loader caps at 4,096. Legacy retains 16,384. |
 | 0003/0005: FP8 KV and its reader | Native Flash Next lacks the `kv8` option. Retain legacy FP8; native uses BF16 explicitly. |
 | 0004/0006: prompt tiles and prefill work | Use native prompt kernels/chunk scheduling. Keep current engine defaults rather than copying old knobs that were removed. |
 | 0007–0011: sampled batched heads, candidate sampling, batched gathers, host work | Use native lane/head and gather implementations, including deduplicated pooled PLE reads. The old optional cost-model patch is not imported. Rank coordination remains native. |
@@ -70,17 +69,63 @@ pass through. `TF_REF` alone cannot select another binary in the release profile
 updating it requires reviewing and changing the archive version and checksum together.
 
 Some upstream recipe documentation lags its source: it still describes prompt-cache
-retention and shared verification as unavailable with TP=2. The 1.2.6 source and
+retention and shared verification as unavailable with TP=2. The 1.2.7 source and
 changelog include both. This review uses `cuda_lanes_load.zig`, `cuda_rank_verify.zig`,
 `cuda_snap.zig`, `cuda_dense_split.zig`, `cuda_batch_side.zig`,
 `cuda_batch_gdn_lanes.zig`, `native/cuda_refusal.zig` and
 `vision/qwen_cuda_media.zig` at the pinned commit as the authority.
 
+## 1.2.7 source constraints and interface
+
+The reviewed [source tree](https://github.com/ashhart/TensorFold/tree/93a2e93ecebff8aa52b88e58c5dd222516e69c5f/zig/src)
+confirms these constraints. Paths below are relative to `zig/src/`.
+
+- `families/flashnext/cuda_lanes_load.zig` admits one or two ranks, requires ModelOpt
+  for TP=2, rejects context above the checkpoint window, and refuses captured glue,
+  paged KV and deferred DeltaNet rollback at TP=2. Dense splitting rejects decode
+  graphs. `cuda_prompt_wt.zig` fixes the window at 262,144.
+- `families/flashnext/cuda_lanes.zig` has no `kv8` option. Together with
+  `native/cuda_refusal.zig`, this means `--kv-cache fp8` is refused and BF16 is used.
+  The legacy `--kv-dtype` flag is absent from native commands.
+- Native lane facts advertise 32 maximum streams and shared verification. This fork
+  keeps `PARALLEL=16` and accepts 1 through 16, preserving its existing interface.
+  Stream admission remains subject to the engine's memory budget. Parser acceptance
+  does not show that sixteen long streams fit.
+- `families/flashnext/cuda_mtp.zig` defaults to six sampled or eight greedy drafts,
+  at most fifteen, with a running probability product threshold of 0.4. Native leaves
+  these defaults intact. `DRAFTS=0` passes `--no-drafts`. The MTP head loads on rank 0;
+  both ranks verify. `--mtp-drafts` and `--mtp-confidence` are refused for this CUDA
+  family by `native/cuda_refusal.zig`; use the reviewed native environment settings
+  for experiments rather than the legacy `TF_FLASHNEXT_DEPTH` knob.
+- `vision/qwen_cuda_media.zig` permits 1 through 64 images, at most 4,096 combined
+  image tokens, and rejects video tokens. Native defaults to 50 images and zero videos.
+- `core/lanes/grammar.zig` loads `libtfgrammar.so` from `../lib` relative to the
+  executable, beside the executable, or the loader path. Structured output and
+  required tool calls need that library. The official archive supplies xgrammar
+  v0.2.8 and its notices. The offline ABI tests check strict JSON-schema behavior;
+  required/named tools, streamed JSON and TP=2 grammar masking still need hardware
+  qualification through the actual server.
+
+`ENGINE=native PULL=0 scripts/prepare.sh` builds `docker/native.Dockerfile` using
+`nvcr.io/nvidia/pytorch:26.07-py3`, the verified aarch64 release and the existing pinned
+JPEG/WebP source builds. It does not build TensorFold from source or apply the legacy
+patches. Preparation also prepares checkpoints, so it was not run for this review.
+The native build-input hash is `c35ae0742dd8`, local image tag
+`ldsands-flashnext-dual:native-zig-93a2e93`; no image was built or published.
+
+`ENGINE=native ./start.sh [extra serve flags]` retains the existing interface. Each
+rank runs `tensorfold-native serve <snapshot> --name nvidia/Qwen3.8-Flash-Next-NVFP4
+--host 0.0.0.0 --port 6060 --context 262144 --parallel 16 --max-tokens 32768
+--thinking --vision --vision-max-images 50 --vision-image-tokens 4096 --tp 2
+--rank <0|1> --master <configured-address> --master-port 29551` by default. Rank 1
+joins the pair without serving HTTP. Checkpoints, caches and profile state keep their
+existing layout. Both ranks must agree on the checkpoint revision and configuration.
+
 ## Validation and first hardware evaluation
 
 See [validation.md](validation.md) for the actual offline results. No Docker image
 was built on the Sparks, no checkpoint was downloaded, and no model was started or
-stopped. The existing GLM deployment was left alone.
+stopped. No running deployment was inspected or changed.
 
 When a hardware run is explicitly requested, start with a small context and the
 same original NVFP4 checkpoint/revision on both nodes. Check health, plain versus
@@ -94,5 +139,5 @@ those two cache types are not a valid parity requirement.
 Measure prefill, first-token latency, decode, peak memory and failures at multiple
 concurrency levels. Native BF16 can fit fewer long streams despite improved weight
 sharding. The legacy memory estimate is retained as a conservative preflight estimate,
-not rebranded as a measurement of 1.2.6. The memory floor remains active on both ranks.
+not rebranded as a measurement of 1.2.7. The memory floor remains active on both ranks.
 Do not promote the native profile to default based on host tests alone.

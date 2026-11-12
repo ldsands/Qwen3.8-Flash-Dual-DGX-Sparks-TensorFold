@@ -1,11 +1,11 @@
 # Flash Next on two DGX Sparks — independent fork
 
 This is [ldsands's fork](https://github.com/ldsands/Qwen3.8-Flash-Dual-DGX-Sparks-TensorFold)
-of MiaAI-Lab's dual-Spark recipe. It is independent of SparkFleet and is not registered
-there. The new native profile has **not been loaded or benchmarked on the Sparks**.
+of MiaAI-Lab's dual-Spark recipe. The native profile has **not been loaded or
+benchmarked on the Sparks**.
 
 The existing patched engine remains the default (`ENGINE=legacy`). An opt-in
-`ENGINE=native` profile uses pinned TensorFold **1.2.6**, including its newer TP=2
+`ENGINE=native` profile uses pinned TensorFold **1.2.7**, including its newer TP=2
 implementation and compatible single-Spark optimizations. It uses the original
 `nvidia/Qwen3.8-Flash-Next-NVFP4` checkpoint at its unchanged revision.
 
@@ -18,7 +18,7 @@ no video input or INT4 TP=2. Legacy retains FP8 KV, million-token YaRN, videos a
 
 Run on the head Spark, with key-based SSH to the worker. Copy
 `scripts/local.sh.example` to `scripts/local.sh` and set `WORKER`. Use a separate local
-configuration for this fork; do not copy SparkFleet's generated state.
+configuration for this fork.
 
 For a future explicitly requested native test, put `ENGINE=native` in local.sh.
 Keeping it there ensures start, prepare, stop and publish select the same profile.
@@ -48,9 +48,14 @@ scripts/check.sh
 ```
 
 To also parse both real rank commands without loading weights, set `TF_TEST_BINARY`
-to a checksum-verified Linux x86_64 TensorFold 1.2.6 binary. The test uses a nonexistent
+to a checksum-verified Linux x86_64 TensorFold 1.2.7 binary. The test uses a nonexistent
 absolute model path with network access disabled through `HF_HUB_OFFLINE=1`.
-It does not connect to either Spark.
+It does not connect to either Spark. The same setting enables grammar discovery and
+strict-schema acceptance/rejection checks against the adjacent `lib/libtfgrammar.so`.
+Set `TF_TEST_ARCHIVE_AARCH64` and `TF_TEST_ARCHIVE_X86_64` to the official local
+1.2.7 `.tar.gz` files to check their outer hashes, internal manifests, grammar
+licenses and ELF architectures. These checks never download archives automatically.
+The check script uses `uv run python`.
 
 The original exactness, tools, needle, long-context and prompt-reuse clients remain
 in `tools/`. New `bench.py`, `bench_streams.py` and `visioncheck.py` come from the
