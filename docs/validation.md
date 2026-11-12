@@ -1,5 +1,9 @@
 # Offline validation, 2026-11-12
 
+The [FP8 receipt](native-fp8.md#offline-validation) records the new source and CUDA
+compile checks. The official BF16 archive checks below remain the fallback receipt;
+the old native image-input hash predates the FP8 builder.
+
 TensorFold 1.2.7 source reviewed at
 `93a2e93ecebff8aa52b88e58c5dd222516e69c5f`. The official GitHub release API identifies
 v1.2.7 as a published, non-prerelease release at that commit. All current checks ran
@@ -57,7 +61,7 @@ The 1.2.6 Zig host-test results below are historical and were **not rerun agains
 CPU grammar library and recipe tests. It does not establish aarch64 execution,
 Docker build success, CUDA/NCCL/CX7 operation, checkpoint loading, TP=2 token parity,
 image/tool/streamed-JSON responses, context or concurrency memory fit, cancellation
-or performance. Both profiles remain unlaunched. The legacy profile stays the default.
+or performance. These checks did not launch either profile. The legacy profile stays the default.
 
 ---
 

@@ -1,8 +1,8 @@
 # Flash Next on two DGX Sparks — independent fork
 
 This is [ldsands's fork](https://github.com/ldsands/Qwen3.8-Flash-Dual-DGX-Sparks-TensorFold)
-of MiaAI-Lab's dual-Spark recipe. The native profile has **not been loaded or
-benchmarked on the Sparks**.
+of MiaAI-Lab's dual-Spark recipe. The source-built FP8 candidate has not been
+qualified on GPUs. This implementation used offline checks and left existing services alone.
 
 The existing patched engine remains the default (`ENGINE=legacy`). An opt-in
 `ENGINE=native` profile uses pinned TensorFold **1.2.7**, including its newer TP=2
@@ -11,8 +11,11 @@ implementation and compatible single-Spark optimizations. It uses the original
 
 Read the [evaluation and compatibility matrix](docs/native-upgrade.md) before selecting
 an engine, and the [validation record](docs/validation.md) for checks actually run.
-Native currently needs BF16 KV, at most 262,144 context and 4,096 image tokens, with
-no video input or INT4 TP=2. Legacy retains FP8 KV, million-token YaRN, videos and INT4.
+Native defaults to BF16 KV, at most 262,144 context and 4,096 image tokens, with
+no video input or INT4 TP=2. A source-built FP8 candidate is available only with
+`KV_DTYPE=fp8 NATIVE_FP8_EXPERIMENTAL=1`. Read the [FP8 implementation and remaining
+qualification](docs/native-fp8.md) before using it. Legacy retains FP8 KV,
+million-token YaRN, videos and INT4.
 
 ## Configuration and operation
 

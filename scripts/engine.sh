@@ -20,9 +20,15 @@ esac
 validate_engine() {
   [[ "$ENGINE" == native ]] || return 0
   [[ "$TF_REF" == 93a2e93ecebff8aa52b88e58c5dd222516e69c5f ]] ||
-    die "native uses the pinned 1.2.7 release archive; changing TF_REF alone cannot change that binary"
+    die "native uses pinned 1.2.7 release and source archives; changing TF_REF alone cannot update them"
   [[ "$QUANT" == nvfp4 ]] || die "native TP=2 needs ModelOpt NVFP4; use ENGINE=legacy for INT4-AutoRound"
-  [[ "$KV_DTYPE" == bf16 ]] || die "native Flash Next has no FP8 KV cache; use ENGINE=legacy for KV_DTYPE=fp8"
+  [[ "$KV_DTYPE" == bf16 || "$KV_DTYPE" == fp8 ]] || die "native KV_DTYPE must be bf16 or fp8"
+  if [[ "$KV_DTYPE" == fp8 && "${NATIVE_FP8_EXPERIMENTAL:-0}" != 1 ]]; then
+    die "native FP8 has no GPU qualification yet; NATIVE_FP8_EXPERIMENTAL=1 enables the source-built candidate, or use KV_DTYPE=bf16"
+  fi
+  if [[ "$KV_DTYPE" == fp8 ]]; then
+    [[ "${TF_FLASHNEXT_WINDOW_GRAPH:-0}" == 0 ]] || die "native FP8 window graphs are unqualified"
+  fi
   [[ "$CONTEXT" =~ ^[1-9][0-9]*$ ]] && (( CONTEXT <= 262144 )) ||
     die "native Flash Next supports at most 262144 context; use ENGINE=legacy for YaRN"
   [[ "$MAX_VIDEOS" == 0 ]] || die "native Flash Next has no video input; use ENGINE=legacy"
@@ -31,9 +37,10 @@ validate_engine() {
   [[ "$TENSORFOLD_MAX_IMAGES" =~ ^[1-9][0-9]*$ ]] && (( TENSORFOLD_MAX_IMAGES <= 64 )) ||
     die "native Flash Next supports 1 to 64 images per request"
   [[ "$TF_REPO" == https://github.com/ashhart/TensorFold.git ]] ||
-    die "native installs the official release archive, not TF_REPO"
+    die "native builds only the pinned official release and source archives, not a TF_REPO override"
   [[ "$TF_FLASHNEXT_YARN" == 0 ]] || die "native Flash Next has no YaRN extension"
   [[ "$TF_FLASHNEXT_KEEP_LATE" == 0 ]] || die "native KEEP_LATE is TP=1 only"
+  [[ "${TF_FLASHNEXT_KV_PAGE_TEST:-0}" == 0 ]] || die "native TP=2 does not support the paged KV diagnostic"
   [[ "${TF_FLASHNEXT_KV_PAGES:-0}" == 0 ]] || die "native paged KV is TP=1 only"
   [[ "${TF_FLASHNEXT_DECODE_GRAPH:-0}" == 0 ]] || die "native decode graphs are incompatible with TP=2 dense splitting"
 }
@@ -41,6 +48,16 @@ validate_engine() {
 kv_arguments() {
   if [[ "$ENGINE" == legacy ]]; then
     SERVE_ARGS+=(--kv-dtype "$KV_DTYPE")
+  elif [[ "$KV_DTYPE" == fp8 ]]; then
+    SERVE_ARGS+=(--kv-cache fp8)
   fi
-  # Native Flash Next uses bf16 implicitly, and rejects --kv-dtype.
+}
+
+# Precision selects a real executable with its own cache ABI, on both ranks and in the parser check.
+engine_binary() {
+  if [[ "$ENGINE" == native && "$KV_DTYPE" == fp8 ]]; then
+    printf '%s\n' tensorfold-native-fp8
+  else
+    printf '%s\n' tensorfold-native
+  fi
 }

@@ -1,0 +1,10 @@
+{
+  "tensorfold_ref": "93a2e93ecebff8aa52b88e58c5dd222516e69c5f",
+  "tensorfold_source_sha256": "d5c11971e9f20d549ae741fecb353bb762f0a4de4d5b0f17f23722754ae5f851",
+  "tensorfold_version": "1.2.7",
+  "zig_version": "0.17.0",
+  "zig_aarch64_sha256": "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8",
+  "storage_abi": "E4M3ROW1",
+  "head_bytes": 260,
+  "sm": "121"
+}

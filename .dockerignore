@@ -1,0 +1,7 @@
+.git
+work
+.state
+.env
+scripts/local.sh
+__pycache__
+**/__pycache__

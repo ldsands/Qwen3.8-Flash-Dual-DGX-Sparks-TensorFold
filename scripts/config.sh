@@ -84,7 +84,7 @@ KERNEL_SOURCE_MTIME="${KERNEL_SOURCE_MTIME:-1791318675}"
 image_hash() {
   ( cd "$_cfg_root" || exit 1
     if [[ "$ENGINE" == native ]]; then
-      cat docker/native.Dockerfile
+      cat docker/native.Dockerfile native-patches/*.patch native/inputs.json scripts/build-native-fp8.sh
       echo "$TF_RELEASE_VERSION $TF_RELEASE_SHA256 $TF_REF $BASE_IMAGE"
       exit
     fi

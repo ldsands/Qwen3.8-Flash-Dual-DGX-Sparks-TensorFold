@@ -220,7 +220,7 @@ log "Link: $HEAD_ADDR ($HEAD_DEV) <-> $WORKER_ADDR ($WORKER_DEV), RoCE $HEAD_HCA
 # no HTTP; it joins rank 0 at --master:--master-port (the TCP control link and NCCL's id), and both ranks check they
 # load the same snapshot, kernel set, window and drafts before NCCL starts.
 rank_argv() {
-  RANK_ARGV=(tensorfold-native serve "$MODEL_ARG" --name "$SERVED_NAME" --host "$HOST" --port "$PORT" "${SERVE_ARGS[@]}"
+  RANK_ARGV=("$(engine_binary)" serve "$MODEL_ARG" --name "$SERVED_NAME" --host "$HOST" --port "$PORT" "${SERVE_ARGS[@]}"
              --tp 2 --rank "$1" --master "$MASTER_ADDR" --master-port "$MASTER_PORT" "${USER_ARGS[@]}")
 }
 # The engine's own parser, in a throwaway container without the GPU or the network: a typo fails here, before anything
@@ -231,7 +231,7 @@ if (( have_image )); then
   rank_argv 0
   RANK_ARGV[2]=/nonexistent/argument-check
   code=0
-  docker run --rm --network none --entrypoint /opt/tensorfold/native/bin/tensorfold-native "$IMAGE" "${RANK_ARGV[@]:1}" \
+  docker run --rm --network none --entrypoint "/opt/tensorfold/native/bin/${RANK_ARGV[0]}" "$IMAGE" "${RANK_ARGV[@]:1}" \
     >/dev/null 2>"$STATE_DIR/args.err" || code=$?
   if (( code == 2 )) || ! grep -q 'neither a directory' "$STATE_DIR/args.err"; then
     if (( DRY )); then warn "DRY_RUN: tensorfold-native in $IMAGE rejects these arguments: $(grep -v '^usage:' "$STATE_DIR/args.err" | tail -1)"

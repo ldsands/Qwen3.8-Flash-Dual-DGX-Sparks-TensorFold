@@ -1,8 +1,12 @@
-# Flash Next native release review, 2026-11-12
+# Flash Next native BF16 baseline review, 2026-11-12
+
+The review below describes the official BF16 executable before the FP8 source patch.
+The current image also builds a separate FP8 candidate. See [native-fp8.md](native-fp8.md)
+for its storage, source pins, selection, checks and remaining GPU qualification.
 
 This fork keeps the original dual-Spark engine and adds an opt-in native release profile.
-It has not been loaded on the Sparks. Offline checks do not establish GPU correctness,
-memory fit or a speed improvement.
+This review used offline checks, which do not establish GPU correctness, memory fit
+or a speed improvement. It does not describe the state of any existing deployment.
 
 ## Reviewed sources
 
@@ -31,9 +35,9 @@ an assertion that every optimized kernel runs for every checkpoint shape.
 
 | Single-Spark work | Decision for this fork |
 | --- | --- |
-| 0001: quantized vision tower | Native ModelOpt vision loader; JPEG/WebP codecs carried over. Must qualify image answers on both ranks. |
+| 0001: quantized vision tower | Native shared CUDA vision loader expects BF16 tower weights; verify the exact checkpoint is compatible. JPEG/WebP codecs carried over. Must qualify image answers on both ranks. |
 | 0002: 16,384 image tokens | Not in native 1.2.7: its shared CUDA media loader caps at 4,096. Legacy retains 16,384. |
-| 0003/0005: FP8 KV and its reader | Native Flash Next lacks the `kv8` option. Retain legacy FP8; native uses BF16 explicitly. |
+| 0003/0005: FP8 KV and its reader | The official executable lacks `kv8`. BF16 stays the default; the separate source-built [FP8 candidate](native-fp8.md) adds storage and kernels. |
 | 0004/0006: prompt tiles and prefill work | Use native prompt kernels/chunk scheduling. Keep current engine defaults rather than copying old knobs that were removed. |
 | 0007–0011: sampled batched heads, candidate sampling, batched gathers, host work | Use native lane/head and gather implementations, including deduplicated pooled PLE reads. The old optional cost-model patch is not imported. Rank coordination remains native. |
 | 0012: deferred DeltaNet rollback | Present upstream but explicitly refused at TP=2. Native profile sets KEEP_LATE=0 and rejects an override to 1. |
@@ -108,9 +112,10 @@ confirms these constraints. Paths below are relative to `zig/src/`.
 
 `ENGINE=native PULL=0 scripts/prepare.sh` builds `docker/native.Dockerfile` using
 `nvcr.io/nvidia/pytorch:26.07-py3`, the verified aarch64 release and the existing pinned
-JPEG/WebP source builds. It does not build TensorFold from source or apply the legacy
-patches. Preparation also prepares checkpoints, so it was not run for this review.
-The native build-input hash is `c35ae0742dd8`, local image tag
+JPEG/WebP source builds. The BF16 executable comes from that archive. The current image additionally builds
+the FP8 executable from patched source as described in [native-fp8.md](native-fp8.md).
+Neither executable uses the legacy patches. Preparation also prepares checkpoints, so it was not run for this review.
+The pre-FP8 native build-input hash was `c35ae0742dd8`, local image tag
 `ldsands-flashnext-dual:native-zig-93a2e93`; no image was built or published.
 
 `ENGINE=native ./start.sh [extra serve flags]` retains the existing interface. Each
